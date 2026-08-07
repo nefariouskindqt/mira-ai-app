@@ -1,2 +1,2 @@
 streamlit
-   crewai
+crewai[google-genai]
