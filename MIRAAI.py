@@ -79,7 +79,7 @@ def main():
   
     st.set_page_config(page_title="MiraAi | Free Solar Load Schedule & SLD Generator", page_icon="⚡", layout="centered")
 
-   st.title("⚡ MiraAi: Auto-Designer")
+    st.title("⚡ MiraAi: Auto-Designer")
     st.markdown("Generate instant, NEC-compliant load schedules and single-line diagrams (SLD) for grid-tie solar systems. Input your residential electrical loads, and our AI engineering agent will automatically calculate breaker sizing, voltage drops, and system specifications in seconds.")
     
     with st.sidebar:
