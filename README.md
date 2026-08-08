@@ -8,6 +8,7 @@ grid-tie solar systems.
 View the Live Web App Here: https://solar-engineering-ai.streamlit.app
 
 🛠️How it Works
+
 MiraAi utilizes an Agentic Workflow rather than a traditional linear script. The application
 coordinates two distinct AI agents that pass data to one another sequentially:
 1. The Load Analyst: Takes raw user input (lighting, HVAC, convenience loads, etc.), parses the
@@ -17,12 +18,14 @@ component specifications (breaker sizing, wire gauge) and a conceptual SLD layou
 target kW solar system.
 
 🚀Technology Stack
+
 Frontend / UI: Streamlit
 Orchestration Framework: CrewAI
 LLM Provider: Google Gemini (via langchain-google-genai )
 Language: Python 3.12
 
 💻Local Installation & Setup
+
 If you want to run this application locally on your own machine, follow these steps:
 1. Clone the repository
 git clone https://github.com/your-username/mira-ai-app.git
