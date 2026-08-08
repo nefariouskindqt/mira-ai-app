@@ -12,7 +12,7 @@ class MiraAi:
         self.gemini_llm = LLM(
             model="gemini/gemini-3.5-flash",
             api_key=api_key,
-            temperature=0.2  # Lowered temperature slightly for more precise technical outputs
+            temperature=0.2  
         )
 
         self.load_analyst = self._create_load_analyst()
@@ -76,13 +76,12 @@ class MiraAi:
 
 
 def main():
-    # Set page configuration for the web app
-    st.set_page_config(page_title="MiraAi | Solar Engineering", page_icon="⚡", layout="centered")
+  
+    st.set_page_config(page_title="MiraAi | Free Solar Load Schedule & SLD Generator", page_icon="⚡", layout="centered")
 
-    st.title("⚡ MiraAi: Auto-Designer")
-    st.markdown("Generate load schedules and solar single-line diagrams in seconds using Multi-Agent AI.")
-
-    # Sidebar Configuration (Removed API Key Input)
+   st.title("⚡ MiraAi: Auto-Designer")
+st.markdown("Generate instant, NEC-compliant load schedules and single-line diagrams (SLD) for grid-tie solar systems. Input your residential electrical loads, and our AI engineering agent will automatically calculate breaker sizing, voltage drops, and system specifications in seconds.")
+    
     with st.sidebar:
         st.header("⚙️ Configuration")
         st.success("App is running in production mode.")
@@ -90,7 +89,7 @@ def main():
         st.markdown("### System Constraints")
         target_kw = st.number_input("Target System Size (kW)", min_value=1.0, max_value=50.0, value=5.5, step=0.5)
 
-    # Main input form for the user
+  
     with st.form("project_form"):
         st.subheader("📋 Project Specifications")
 
@@ -105,18 +104,18 @@ def main():
 
         additional_notes = st.text_input("Additional Goal/Notes", value="Offset daytime usage with grid-tie solar.")
 
-        # Submit button
+      
         submitted = st.form_submit_button("Generate Engineering Docs", type="primary")
 
     if submitted:
-        # Fetch the secure API key from Streamlit Secrets
+      
         try:
             api_key = st.secrets["GEMINI_API_KEY"]
         except KeyError:
             st.error("⚠️ Server Error: API Key not found in Secrets. Please contact the administrator.")
             return
 
-        # Compile the inputs into a single prompt for the agents
+      
         project_scope = (
             f"Lighting: {lighting}. "
             f"Plugging: {outlets}. "
@@ -127,16 +126,16 @@ def main():
 
         st.info("🤖 MiraAi is analyzing the loads and drafting the system...")
 
-        # Display a loading spinner while the AI works
+       
         with st.spinner('Agents are collaborating... This usually takes 15-30 seconds.'):
             try:
-                # Initialize and run the AI
+            
                 mira = MiraAi(api_key=api_key)
                 result = mira.run_workflow(target_kw, project_scope)
 
                 st.success("✅ Design Complete!")
 
-                # Display the final output in a nice visual box
+               
                 st.markdown("---")
                 st.markdown("### 📄 Final Engineering Deliverable")
                 st.markdown(result)
