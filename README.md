@@ -1,4 +1,4 @@
-⚡MiraAi: Auto-Designer
+                                                                ⚡MiraAi: Auto-Designer
 
 MiraAi is an autonomous, multi-agent workflow designed to streamline electrical engineering
 tasks. Powered by CrewAI and Google Gemini, it acts as a virtual engineering team, automatically
