@@ -47,6 +47,7 @@ GEMINI_API_KEY = "your-actual-api-key-here"
 streamlit run app.py
 
 📈Future Roadmap
+
 [ ] Implement CrewAI Custom Tools to offload exact mathematical calculations (e.g., voltage
 drop percentages) from the LLM to hardcoded Python functions for guaranteed accuracy.
 
