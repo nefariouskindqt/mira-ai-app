@@ -20,7 +20,7 @@ class MiraAi:
 
     def _create_load_analyst(self):
         return Agent(
-            role='Senior Electrical Load Analyst',
+            role='Electrical Load Analyst',
             goal='Analyze raw consumption data and generate a comprehensive, code-compliant load schedule.',
             backstory=(
                 'You are an expert in electrical illumination and power distribution. '
