@@ -1,18 +1,23 @@
 import os
+import datetime
 import streamlit as st
 from crewai import Agent, Task, Crew, Process, LLM
-from fpdf import FPDF
+from markdown_pdf import MarkdownPdf, Section
 
 def generate_pdf(text):
-    """Converts the text report into a downloadable PDF format."""
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=11)
+    """Converts the Markdown text report into a clean, formatted PDF."""
+    pdf = MarkdownPdf(toc_level=0) # Disable table of contents
+    pdf.add_section(Section(text))
     
-    safe_text = str(text).encode('latin-1', 'replace').decode('latin-1')
-    pdf.multi_cell(0, 5, txt=safe_text)
-
-    return pdf.output(dest='S').encode('latin-1')
+    # Save to a temporary file, read the bytes, and then delete the file
+    temp_filename = f"temp_report_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}.pdf"
+    pdf.save(temp_filename)
+    
+    with open(temp_filename, "rb") as f:
+        pdf_bytes = f.read()
+        
+    os.remove(temp_filename)
+    return pdf_bytes
 
 class MiraAi:
     """
@@ -90,16 +95,38 @@ def main():
     # Set page configuration for the web app (SEO Optimized)
     st.set_page_config(page_title="MiraAi | Free Solar Load Schedule & SLD Generator", page_icon="⚡", layout="centered")
 
+    # Initialize Session State for History
+    if 'history' not in st.session_state:
+        st.session_state.history = []
+
     st.title("⚡ MiraAi: Auto-Designer")
     st.markdown("Generate instant, NEC-compliant load schedules and single-line diagrams (SLD) for grid-tie solar systems. Input your residential electrical loads, and our AI engineering agent will automatically calculate breaker sizing, voltage drops, and system specifications in seconds.")
 
-    # Sidebar Configuration
+    # Sidebar Configuration and History
     with st.sidebar:
         st.header("⚙️ Configuration")
         st.success("App is running in production mode.")
         st.markdown("---")
         st.markdown("### System Constraints")
         target_kw = st.number_input("Target PV System Size (kW)", min_value=1.0, max_value=50.0, value=5.5, step=0.5)
+        
+        st.markdown("---")
+        st.header("🕰️ Generation History")
+        if not st.session_state.history:
+            st.info("Your past generated reports will appear here.")
+        else:
+            # Display history in reverse order (newest first)
+            for idx, record in enumerate(reversed(st.session_state.history)):
+                with st.expander(f"Report: {record['timestamp']}"):
+                    st.caption(f"Size: {record['kw']} kW")
+                    st.text(record['text'][:150] + "...") # Show a small preview
+                    st.download_button(
+                        label="📥 Download PDF",
+                        data=record['pdf_bytes'],
+                        file_name=f"MiraAi_Report_{record['timestamp'].replace(':', '-')}.pdf",
+                        mime="application/pdf",
+                        key=f"history_dl_{idx}"
+                    )
 
     # Main input form for the user
     with st.form("project_form"):
@@ -107,14 +134,14 @@ def main():
         
         col1, col2 = st.columns(2)
         with col1:
-            lighting = st.text_area("Lighting & Outlets", value="12x 15W LED fixtures, 8x 200W convenience outlets", height=100)
-            appliances = st.text_area("Standard Appliances", value="1x Refrigerator (300W), 1x Microwave, TV", height=100)
+            lighting = st.text_area("Lighting & Outlets", placeholder="12x 15W LED fixtures, 8x 200W convenience outlets", height=100)
+            appliances = st.text_area("Standard Appliances", placeholder="1x Refrigerator (300W), 1x Microwave, TV", height=100)
         
         with col2:
-            electric_range = st.text_area("Electric Range / Cooking (kW)", value="1x 3.5kW Electric Range", height=100)
-            hvac_motors = st.text_area("HVAC / Heavy Motors", value="1x 1.5HP Air Conditioning Unit, 1x Water Pump", height=100)
+            electric_range = st.text_area("Electric Range / Cooking (kW)", placeholder="1x 3.5kW Electric Range", height=100)
+            hvac_motors = st.text_area("HVAC / Heavy Motors", placeholder="1x 1.5HP Air Conditioning Unit, 1x Water Pump", height=100)
 
-        additional_notes = st.text_input("Additional Goal/Notes", value="Offset daytime usage with grid-tie solar.")
+        additional_notes = st.text_input("Additional Goal/Notes", placeholder="Offset daytime usage with grid-tie solar.")
 
         # Submit button
         submitted = st.form_submit_button("Generate Engineering Docs", type="primary")
@@ -126,13 +153,20 @@ def main():
             st.error("⚠️ Server Error: API Key not found in Secrets. Please contact the administrator.")
             return
 
+        # Use placeholder values if the user left the fields blank
+        lighting_input = lighting if lighting.strip() else "12x 15W LED fixtures, 8x 200W convenience outlets"
+        appliances_input = appliances if appliances.strip() else "1x Refrigerator (300W), 1x Microwave, TV"
+        range_input = electric_range if electric_range.strip() else "1x 3.5kW Electric Range"
+        hvac_input = hvac_motors if hvac_motors.strip() else "1x 1.5HP Air Conditioning Unit, 1x Water Pump"
+        notes_input = additional_notes if additional_notes.strip() else "Offset daytime usage with grid-tie solar."
+
         # Compile the inputs into a single prompt for the agents
         project_scope = (
-            f"Lighting & Outlets: {lighting}. "
-            f"Electric Range/Cooking: {electric_range}. "
-            f"Standard Appliances: {appliances}. "
-            f"HVAC/Motors: {hvac_motors}. "
-            f"Goal: {additional_notes}"
+            f"Lighting & Outlets: {lighting_input}. "
+            f"Electric Range/Cooking: {range_input}. "
+            f"Standard Appliances: {appliances_input}. "
+            f"HVAC/Motors: {hvac_input}. "
+            f"Goal: {notes_input}"
         )
 
         st.info("🤖 MiraAi is analyzing the loads and drafting the system...")
@@ -146,21 +180,30 @@ def main():
                 
                 st.success("✅ Design Complete!")
                 
-                # Display of final input
+                # Display the final output in a nice visual box
                 st.markdown("---")
                 st.markdown("### 📄 Final Engineering Deliverable")
                 
                 final_text = str(result)
                 st.markdown(final_text)
                 
-                # Generate PDF and create a download button
+                # Generate High-Quality PDF
                 pdf_bytes = generate_pdf(final_text)
+                
+                # Save to History
+                timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                st.session_state.history.append({
+                    "timestamp": timestamp,
+                    "kw": target_kw,
+                    "text": final_text,
+                    "pdf_bytes": pdf_bytes
+                })
                 
                 st.markdown("---")
                 st.download_button(
                     label="📥 Download Engineering Report (PDF)",
                     data=pdf_bytes,
-                    file_name="MiraAi_Solar_SLD_Schedule.pdf",
+                    file_name=f"MiraAi_Solar_SLD_Schedule.pdf",
                     mime="application/pdf",
                     type="primary"
                 )
