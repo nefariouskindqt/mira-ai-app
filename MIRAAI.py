@@ -2,21 +2,22 @@ import os
 import re
 import datetime
 import streamlit as st
+from io import BytesIO
 from crewai import Agent, Task, Crew, Process, LLM
-from markdown_pdf import MarkdownPdf, Section
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
 
 def clean_text_for_pdf(text):
     """
-    Cleans AI output to prevent PDF rendering errors and fixes LaTeX math symbols.
+    Cleans AI output to ensure perfect rendering in the PDF.
     """
-    # 1. Protect against HTML tag deletion (Markdown-PDF interprets < > as HTML)
-    text = text.replace("<", "&lt;").replace(">", "&gt;")
-    
-    # 2. Remove math block markers
+    # 1. Remove math block markers
     text = text.replace("$$", "")
     text = text.replace("$", "")
     
-    # 3. Fix common LaTeX symbols the AI tries to use
+    # 2. Fix common LaTeX symbols
     text = text.replace("\\times", "x")
     text = text.replace("^{\\circ}\\text{C}", "°C")
     text = text.replace("^{\\circ} C", "°C")
@@ -24,27 +25,69 @@ def clean_text_for_pdf(text):
     text = text.replace("\\Delta", "Δ")
     text = text.replace("\\_", "_")
     
-    # 4. Extract text from \text{...} blocks
+    # 3. Extract text from \text{...} blocks
     text = re.sub(r'\\text\{([^}]*)\}', r'\1', text)
     
-    # 5. Clean up any leftover fractions \frac{a}{b} to a/b
+    # 4. Clean up fractions \frac{a}{b} to a/b
     text = re.sub(r'\\frac\{([^}]*)\}\{([^}]*)\}', r'\1/\2', text)
+    
+    # 5. Clean up bolding asterisks for plain text PDF
+    text = text.replace("**", "")
+    text = text.replace("### ", "")
+    text = text.replace("## ", "")
+    text = text.replace("# ", "")
+    
+    # 6. Sanitize for ReportLab (replace problematic characters)
+    text = text.replace("<", "&lt;").replace(">", "&gt;")
     
     return text
 
 def generate_pdf(text):
-    """Converts the Markdown text report into a clean, formatted PDF."""
-    pdf = MarkdownPdf(toc_level=0) # Disable table of contents
-    pdf.add_section(Section(text))
+    """Converts the cleaned text into a bulletproof PDF using ReportLab."""
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter,
+                            rightMargin=72, leftMargin=72,
+                            topMargin=72, bottomMargin=18)
     
-    # Save to a temporary file, read the bytes, and then delete the file
-    temp_filename = f"temp_report_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}.pdf"
-    pdf.save(temp_filename)
+    styles = getSampleStyleSheet()
     
-    with open(temp_filename, "rb") as f:
-        pdf_bytes = f.read()
-        
-    os.remove(temp_filename)
+    # Create a custom style for the report body
+    body_style = ParagraphStyle(
+        'ReportBody',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=11,
+        leading=14, # Line spacing
+        spaceAfter=12
+    )
+    
+    # Create a title style
+    title_style = ParagraphStyle(
+        'ReportTitle',
+        parent=styles['Title'],
+        fontName='Helvetica-Bold',
+        fontSize=18,
+        spaceAfter=20
+    )
+
+    Story = []
+    
+    # Add a title
+    Story.append(Paragraph("MiraAi Engineering Report", title_style))
+    
+    # Split the text by double newlines to create separate paragraphs
+    paragraphs = text.split('\n\n')
+    
+    for p in paragraphs:
+        # Handle single line breaks within paragraphs
+        p = p.replace('\n', '<br/>')
+        if p.strip():
+            Story.append(Paragraph(p, body_style))
+            
+    doc.build(Story)
+    pdf_bytes = buffer.getvalue()
+    buffer.close()
+    
     return pdf_bytes
 
 class MiraAi:
@@ -55,7 +98,7 @@ class MiraAi:
         self.gemini_llm = LLM(
             model="gemini/gemini-3.5-flash",
             api_key=api_key,
-            temperature=0.2 # Lowered temperature slightly for more precise technical outputs
+            temperature=0.2 
         )
         
         self.load_analyst = self._create_load_analyst()
@@ -122,17 +165,14 @@ class MiraAi:
         return mira_crew.kickoff()
 
 def main():
-    # Set page configuration for the web app (SEO Optimized)
     st.set_page_config(page_title="MiraAi | Free Solar Load Schedule & SLD Generator", page_icon="⚡", layout="centered")
 
-    # Initialize Session State for History
     if 'history' not in st.session_state:
         st.session_state.history = []
 
     st.title("⚡ MiraAi: Auto-Designer")
     st.markdown("Generate instant, NEC-compliant load schedules and single-line diagrams (SLD) for grid-tie solar systems. Input your residential electrical loads, and our AI engineering agent will automatically calculate breaker sizing, voltage drops, and system specifications in seconds.")
 
-    # Sidebar Configuration and History
     with st.sidebar:
         st.header("⚙️ Configuration")
         st.success("App is running in production mode.")
@@ -145,11 +185,10 @@ def main():
         if not st.session_state.history:
             st.info("Your past generated reports will appear here.")
         else:
-            # Display history in reverse order (newest first)
             for idx, record in enumerate(reversed(st.session_state.history)):
                 with st.expander(f"Report: {record['timestamp']}"):
                     st.caption(f"Size: {record['kw']} kW")
-                    st.text(record['text'][:150] + "...") # Show a small preview
+                    st.text(record['text'][:150] + "...") 
                     st.download_button(
                         label="📥 Download PDF",
                         data=record['pdf_bytes'],
@@ -158,7 +197,6 @@ def main():
                         key=f"history_dl_{idx}"
                     )
 
-    # Main input form for the user
     with st.form("project_form"):
         st.subheader("📋 Electrical Load Inputs")
         
@@ -173,25 +211,21 @@ def main():
 
         additional_notes = st.text_input("Additional Goal/Notes", placeholder="Offset daytime usage with grid-tie solar.")
 
-        # Submit button
         submitted = st.form_submit_button("Generate Engineering Docs", type="primary")
 
     if submitted:
-        # Fetch the secure API key from Streamlit Secrets
         try:
             api_key = st.secrets["GEMINI_API_KEY"]
         except KeyError:
             st.error("⚠️ Server Error: API Key not found in Secrets. Please contact the administrator.")
             return
 
-        # Use placeholder values if the user left the fields blank
         lighting_input = lighting if lighting.strip() else "12x 15W LED fixtures, 8x 200W convenience outlets"
         appliances_input = appliances if appliances.strip() else "1x Refrigerator (300W), 1x Microwave, TV"
         range_input = electric_range if electric_range.strip() else "1x 3.5kW Electric Range"
         hvac_input = hvac_motors if hvac_motors.strip() else "1x 1.5HP Air Conditioning Unit, 1x Water Pump"
         notes_input = additional_notes if additional_notes.strip() else "Offset daytime usage with grid-tie solar."
 
-        # Compile the inputs into a single prompt for the agents
         project_scope = (
             f"Lighting & Outlets: {lighting_input}. "
             f"Electric Range/Cooking: {range_input}. "
@@ -209,22 +243,19 @@ def main():
                 mira = MiraAi(api_key=api_key)
                 result = mira.run_workflow(target_kw, project_scope)
                 
-                st.success("✅ Design Complete!")
+                # Extract raw text from CrewOutput
+                final_text = result.raw
+
+                # SAVE TO SESSION STATE SO IT SURVIVES BUTTON CLICKS!
+                st.session_state['current_report'] = final_text
                 
-                # Display the final output in a nice visual box
-                st.markdown("---")
-                st.markdown("### 📄 Final Engineering Deliverable")
-                
-                # Clean the text to prevent PDF loss and fix math symbols
-                final_text = str(result)
+                # Clean text specifically for the PDF generator
                 cleaned_text = clean_text_for_pdf(final_text)
                 
-                st.markdown(cleaned_text, unsafe_allow_html=True)
-                
-                # Generate High-Quality PDF using the cleaned text
+                # Generate bulletproof PDF
                 pdf_bytes = generate_pdf(cleaned_text)
+                st.session_state['current_pdf'] = pdf_bytes
                 
-                # Save to History
                 timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 st.session_state.history.append({
                     "timestamp": timestamp,
@@ -233,17 +264,27 @@ def main():
                     "pdf_bytes": pdf_bytes
                 })
                 
-                st.markdown("---")
-                st.download_button(
-                    label="📥 Download Engineering Report (PDF)",
-                    data=pdf_bytes,
-                    file_name=f"MiraAi_Solar_SLD_Schedule.pdf",
-                    mime="application/pdf",
-                    type="primary"
-                )
-                
             except Exception as e:
                 st.error(f"An error occurred during generation: {e}")
+
+    # Display the report OUTSIDE the 'if submitted' block
+    # This ensures it stays on screen even after clicking Download
+    if 'current_report' in st.session_state:
+        st.success("✅ Design Complete!")
+        st.markdown("---")
+        st.markdown("### 📄 Final Engineering Deliverable")
+        
+        # Display beautiful markdown on the webpage
+        st.markdown(st.session_state['current_report'], unsafe_allow_html=True)
+        
+        st.markdown("---")
+        st.download_button(
+            label="📥 Download Engineering Report (PDF)",
+            data=st.session_state['current_pdf'],
+            file_name=f"MiraAi_Solar_SLD_Schedule.pdf",
+            mime="application/pdf",
+            type="primary"
+        )
 
 if __name__ == "__main__":
     main()
