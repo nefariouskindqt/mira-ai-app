@@ -1,8 +1,36 @@
 import os
+import re
 import datetime
 import streamlit as st
 from crewai import Agent, Task, Crew, Process, LLM
 from markdown_pdf import MarkdownPdf, Section
+
+def clean_text_for_pdf(text):
+    """
+    Cleans AI output to prevent PDF rendering errors and fixes LaTeX math symbols.
+    """
+    # 1. Protect against HTML tag deletion (Markdown-PDF interprets < > as HTML)
+    text = text.replace("<", "&lt;").replace(">", "&gt;")
+    
+    # 2. Remove math block markers
+    text = text.replace("$$", "")
+    text = text.replace("$", "")
+    
+    # 3. Fix common LaTeX symbols the AI tries to use
+    text = text.replace("\\times", "x")
+    text = text.replace("^{\\circ}\\text{C}", "°C")
+    text = text.replace("^{\\circ} C", "°C")
+    text = text.replace("\\circ", "°")
+    text = text.replace("\\Delta", "Δ")
+    text = text.replace("\\_", "_")
+    
+    # 4. Extract text from \text{...} blocks
+    text = re.sub(r'\\text\{([^}]*)\}', r'\1', text)
+    
+    # 5. Clean up any leftover fractions \frac{a}{b} to a/b
+    text = re.sub(r'\\frac\{([^}]*)\}\{([^}]*)\}', r'\1/\2', text)
+    
+    return text
 
 def generate_pdf(text):
     """Converts the Markdown text report into a clean, formatted PDF."""
@@ -66,10 +94,11 @@ class MiraAi:
             description=(
                 f'Analyze the following project details: {project_details}. '
                 'Calculate the estimated daily consumption and create a detailed load schedule. '
-                'Apply the NEC 125% rule for continuous loads where appropriate.'
+                'Apply the NEC 125% rule for continuous loads where appropriate. '
+                'CRITICAL: DO NOT use LaTeX formatting, dollar signs ($), or backslashes (\\). Use standard text and standard symbols like "x" for multiplication.'
             ),
             agent=self.load_analyst,
-            expected_output='A structured load schedule showing total wattage, ampacity, and daily consumption.'
+            expected_output='A structured load schedule showing total wattage, ampacity, and daily consumption in plain markdown.'
         )
 
         design_system_task = Task(
@@ -77,10 +106,11 @@ class MiraAi:
                 f'Using the load schedule provided, draft the component specifications '
                 f'for a {target_kw}kW Grid-Tie Solar System. Include a conceptual node list for the single line diagram '
                 '(e.g., PV Array -> DC Disconnect -> Inverter -> AC Breaker -> Main Panel). '
-                'Check Main Panelboard Busbar & Main Breaker sizing compliance under NEC 705.12(B) (120% rule).'
+                'Check Main Panelboard Busbar & Main Breaker sizing compliance under NEC 705.12(B) (120% rule). '
+                'CRITICAL: DO NOT use LaTeX formatting, dollar signs ($), or backslashes (\\). Use standard text and standard symbols like "x" for multiplication.'
             ),
             agent=self.system_designer,
-            expected_output='A detailed system specification sheet and single line diagram layout.'
+            expected_output='A detailed system specification sheet and single line diagram layout in plain markdown.'
         )
 
         mira_crew = Crew(
@@ -147,6 +177,7 @@ def main():
         submitted = st.form_submit_button("Generate Engineering Docs", type="primary")
 
     if submitted:
+        # Fetch the secure API key from Streamlit Secrets
         try:
             api_key = st.secrets["GEMINI_API_KEY"]
         except KeyError:
@@ -184,18 +215,21 @@ def main():
                 st.markdown("---")
                 st.markdown("### 📄 Final Engineering Deliverable")
                 
+                # Clean the text to prevent PDF loss and fix math symbols
                 final_text = str(result)
-                st.markdown(final_text)
+                cleaned_text = clean_text_for_pdf(final_text)
                 
-                # Generate High-Quality PDF
-                pdf_bytes = generate_pdf(final_text)
+                st.markdown(cleaned_text, unsafe_allow_html=True)
+                
+                # Generate High-Quality PDF using the cleaned text
+                pdf_bytes = generate_pdf(cleaned_text)
                 
                 # Save to History
                 timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 st.session_state.history.append({
                     "timestamp": timestamp,
                     "kw": target_kw,
-                    "text": final_text,
+                    "text": cleaned_text,
                     "pdf_bytes": pdf_bytes
                 })
                 
