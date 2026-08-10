@@ -9,5 +9,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping Streamlit App
-        run: |
-          curl -s -L -o /dev/null -w "%{http_code}\n" https://solar-engineering-ai.streamlit.app/
+        # Using wget --spider to just check the headers without following infinite redirects
+        run: wget --spider --quiet https://solar-engineering-ai.streamlit.app/ || true
