@@ -1,23 +1,21 @@
 import os
 import re
 import datetime
+import tempfile
 import streamlit as st
-from io import BytesIO
 from crewai import Agent, Task, Crew, Process, LLM
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
+from markdown_pdf import Section, MarkdownPdf
 
 def clean_text_for_pdf(text):
     """
-    Cleans AI output to ensure perfect rendering in the PDF.
+    Cleans AI output to remove LaTeX math formatting but preserves standard Markdown (like **bold** and ### headers)
+    so markdown-pdf can format it beautifully.
     """
     # 1. Remove math block markers
     text = text.replace("$$", "")
     text = text.replace("$", "")
     
-    # 2. Fix common LaTeX symbols
+    # 2. Fix common LaTeX symbols to normal text
     text = text.replace("\\times", "x")
     text = text.replace("^{\\circ}\\text{C}", "°C")
     text = text.replace("^{\\circ} C", "°C")
@@ -31,63 +29,29 @@ def clean_text_for_pdf(text):
     # 4. Clean up fractions \frac{a}{b} to a/b
     text = re.sub(r'\\frac\{([^}]*)\}\{([^}]*)\}', r'\1/\2', text)
     
-    # 5. Clean up bolding asterisks for plain text PDF
-    text = text.replace("**", "")
-    text = text.replace("### ", "")
-    text = text.replace("## ", "")
-    text = text.replace("# ", "")
-    
-    # 6. Sanitize for ReportLab (replace problematic characters)
+    # 5. Sanitize HTML tags (so <600V> doesn't get deleted by the Markdown parser)
     text = text.replace("<", "&lt;").replace(">", "&gt;")
     
     return text
 
 def generate_pdf(text):
-    """Converts the cleaned text into a bulletproof PDF using ReportLab."""
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter,
-                            rightMargin=72, leftMargin=72,
-                            topMargin=72, bottomMargin=18)
+    """Converts the cleaned markdown text into a formatted PDF using markdown-pdf."""
+    pdf = MarkdownPdf(toc_level=0)
+    pdf.add_section(Section(text))
     
-    styles = getSampleStyleSheet()
+    # Create a temporary file to save the PDF, then read its bytes
+    fd, temp_path = tempfile.mkstemp(suffix=".pdf")
+    os.close(fd)
     
-    # Create a custom style for the report body
-    body_style = ParagraphStyle(
-        'ReportBody',
-        parent=styles['Normal'],
-        fontName='Helvetica',
-        fontSize=11,
-        leading=14, # Line spacing
-        spaceAfter=12
-    )
-    
-    # Create a title style
-    title_style = ParagraphStyle(
-        'ReportTitle',
-        parent=styles['Title'],
-        fontName='Helvetica-Bold',
-        fontSize=18,
-        spaceAfter=20
-    )
-
-    Story = []
-    
-    # Add a title
-    Story.append(Paragraph("MiraAi Engineering Report", title_style))
-    
-    # Split the text by double newlines to create separate paragraphs
-    paragraphs = text.split('\n\n')
-    
-    for p in paragraphs:
-        # Handle single line breaks within paragraphs
-        p = p.replace('\n', '<br/>')
-        if p.strip():
-            Story.append(Paragraph(p, body_style))
+    try:
+        pdf.save(temp_path)
+        with open(temp_path, "rb") as f:
+            pdf_bytes = f.read()
+    finally:
+        # Clean up the temporary file from the server
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
             
-    doc.build(Story)
-    pdf_bytes = buffer.getvalue()
-    buffer.close()
-    
     return pdf_bytes
 
 class MiraAi:
@@ -138,7 +102,7 @@ class MiraAi:
                 f'Analyze the following project details: {project_details}. '
                 'Calculate the estimated daily consumption and create a detailed load schedule. '
                 'Apply the NEC 125% rule for continuous loads where appropriate. '
-                'CRITICAL: DO NOT use LaTeX formatting, dollar signs ($), or backslashes (\\). Use standard text and standard symbols like "x" for multiplication.'
+                'CRITICAL: DO NOT use LaTeX formatting, dollar signs ($), or backslashes (\\) for math. Use standard text.'
             ),
             agent=self.load_analyst,
             expected_output='A structured load schedule showing total wattage, ampacity, and daily consumption in plain markdown.'
@@ -150,7 +114,7 @@ class MiraAi:
                 f'for a {target_kw}kW Grid-Tie Solar System. Include a conceptual node list for the single line diagram '
                 '(e.g., PV Array -> DC Disconnect -> Inverter -> AC Breaker -> Main Panel). '
                 'Check Main Panelboard Busbar & Main Breaker sizing compliance under NEC 705.12(B) (120% rule). '
-                'CRITICAL: DO NOT use LaTeX formatting, dollar signs ($), or backslashes (\\). Use standard text and standard symbols like "x" for multiplication.'
+                'CRITICAL: DO NOT use LaTeX formatting, dollar signs ($), or backslashes (\\) for math. Use standard text.'
             ),
             agent=self.system_designer,
             expected_output='A detailed system specification sheet and single line diagram layout in plain markdown.'
@@ -167,12 +131,14 @@ class MiraAi:
 def main():
     st.set_page_config(page_title="MiraAi | Free Solar Load Schedule & SLD Generator", page_icon="⚡", layout="centered")
 
+    # Initialize history list in session state
     if 'history' not in st.session_state:
         st.session_state.history = []
 
     st.title("⚡ MiraAi: Auto-Designer")
     st.markdown("Generate instant, NEC-compliant load schedules and single-line diagrams (SLD) for grid-tie solar systems. Input your residential electrical loads, and our AI engineering agent will automatically calculate breaker sizing, voltage drops, and system specifications in seconds.")
 
+    # Sidebar
     with st.sidebar:
         st.header("⚙️ Configuration")
         st.success("App is running in production mode.")
@@ -182,19 +148,21 @@ def main():
         
         st.markdown("---")
         st.header("🕰️ Generation History")
+        
         if not st.session_state.history:
             st.info("Your past generated reports will appear here.")
         else:
+            # Display past generations
             for idx, record in enumerate(reversed(st.session_state.history)):
                 with st.expander(f"Report: {record['timestamp']}"):
                     st.caption(f"Size: {record['kw']} kW")
-                    st.text(record['text'][:150] + "...") 
+                    st.text(record['text'][:150] + "...") # Preview the first 150 characters
                     st.download_button(
                         label="📥 Download PDF",
                         data=record['pdf_bytes'],
                         file_name=f"MiraAi_Report_{record['timestamp'].replace(':', '-')}.pdf",
                         mime="application/pdf",
-                        key=f"history_dl_{idx}"
+                        key=f"history_dl_{idx}" # Unique key required for each button
                     )
 
     with st.form("project_form"):
@@ -220,6 +188,7 @@ def main():
             st.error("⚠️ Server Error: API Key not found in Secrets. Please contact the administrator.")
             return
 
+        # Use the user's input, or default to the placeholder if they left it blank
         lighting_input = lighting if lighting.strip() else "12x 15W LED fixtures, 8x 200W convenience outlets"
         appliances_input = appliances if appliances.strip() else "1x Refrigerator (300W), 1x Microwave, TV"
         range_input = electric_range if electric_range.strip() else "1x 3.5kW Electric Range"
@@ -236,26 +205,24 @@ def main():
 
         st.info("🤖 MiraAi is analyzing the loads and drafting the system...")
         
-        # Display a loading spinner while the AI works
         with st.spinner('Agents are collaborating... This usually takes 15-30 seconds.'):
             try:
-                # Initialize and run the AI
+                # 1. Run the AI
                 mira = MiraAi(api_key=api_key)
                 result = mira.run_workflow(target_kw, project_scope)
                 
-                # Extract raw text from CrewOutput
+                # 2. Extract and clean the text
                 final_text = result.raw
-
-                # SAVE TO SESSION STATE SO IT SURVIVES BUTTON CLICKS!
-                st.session_state['current_report'] = final_text
-                
-                # Clean text specifically for the PDF generator
                 cleaned_text = clean_text_for_pdf(final_text)
                 
-                # Generate bulletproof PDF
+                # 3. Save to Session State (THIS PREVENTS THE PAGE CLEARING ON DOWNLOAD)
+                st.session_state['current_report'] = cleaned_text
+                
+                # 4. Generate and save the beautiful Markdown PDF
                 pdf_bytes = generate_pdf(cleaned_text)
                 st.session_state['current_pdf'] = pdf_bytes
                 
+                # 5. Add to History
                 timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 st.session_state.history.append({
                     "timestamp": timestamp,
@@ -268,7 +235,7 @@ def main():
                 st.error(f"An error occurred during generation: {e}")
 
     # Display the report OUTSIDE the 'if submitted' block
-    # This ensures it stays on screen even after clicking Download
+    # Streamlit will always run this part of the code if the report exists in memory!
     if 'current_report' in st.session_state:
         st.success("✅ Design Complete!")
         st.markdown("---")
@@ -278,10 +245,12 @@ def main():
         st.markdown(st.session_state['current_report'], unsafe_allow_html=True)
         
         st.markdown("---")
+        
+        # The download button will no longer wipe the page because the 'current_report' is saved!
         st.download_button(
             label="📥 Download Engineering Report (PDF)",
             data=st.session_state['current_pdf'],
-            file_name=f"MiraAi_Solar_SLD_Schedule.pdf",
+            file_name="MiraAi_Solar_SLD_Schedule.pdf",
             mime="application/pdf",
             type="primary"
         )
