@@ -234,19 +234,16 @@ def main():
             except Exception as e:
                 st.error(f"An error occurred during generation: {e}")
 
-    # Display the report OUTSIDE the 'if submitted' block
     # Streamlit will always run this part of the code if the report exists in memory!
     if 'current_report' in st.session_state:
         st.success("✅ Design Complete!")
         st.markdown("---")
         st.markdown("### 📄 Final Engineering Deliverable")
         
-        # Display beautiful markdown on the webpage
         st.markdown(st.session_state['current_report'], unsafe_allow_html=True)
         
         st.markdown("---")
         
-        # The download button will no longer wipe the page because the 'current_report' is saved!
         st.download_button(
             label="📥 Download Engineering Report (PDF)",
             data=st.session_state['current_pdf'],
@@ -254,6 +251,17 @@ def main():
             mime="application/pdf",
             type="primary"
         )
+   
+    st.markdown("<br><br>", unsafe_allow_html=True) # Add some spacing
+    st.markdown(
+        """
+        <div style='text-align: center; color: gray; font-size: 0.8em;'>
+            &copy; 2026 Joseph Ryan Beloria. All rights reserved.<br>
+            Powered by CrewAI and Google Gemini.
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
 
 if __name__ == "__main__":
     main()
