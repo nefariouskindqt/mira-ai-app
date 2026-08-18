@@ -8,6 +8,6 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Streamlit App
-        # Using wget --spider to just check the headers without following infinite redirects
-        run: wget --spider --quiet https://solar-engineering-ai.streamlit.app/ || true
+      - name: Wake up Streamlit container
+        # This hits the hidden health-check endpoint that forces the Python app to wake up
+        run: curl -s https://solar-engineering-ai.streamlit.app/_stcore/health
